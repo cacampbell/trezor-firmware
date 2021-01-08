@@ -6,8 +6,6 @@ from trezor.messages import (
     ButtonRequestType,
     CardanoAddressType,
     CardanoCertificateType,
-    CardanoPoolMetadataType,
-    CardanoPoolOwnerType,
 )
 from trezor.strings import format_amount
 from trezor.ui.button import ButtonDefault
@@ -30,12 +28,14 @@ from .helpers.utils import to_account_path
 if False:
     from typing import List, Optional
     from trezor import wire
-    from trezor.messages import (
+    from trezor.messages.CardanoBlockchainPointerType import (
         CardanoBlockchainPointerType,
-        CardanoTxCertificateType,
-        CardanoTxWithdrawalType,
-        CardanoPoolParametersType,
     )
+    from trezor.messages.CardanoTxCertificateType import CardanoTxCertificateType
+    from trezor.messages.CardanoTxWithdrawalType import CardanoTxWithdrawalType
+    from trezor.messages.CardanoPoolParametersType import CardanoPoolParametersType
+    from trezor.messages.CardanoPoolOwnerType import CardanoPoolOwnerType
+    from trezor.messages.CardanoPoolMetadataType import CardanoPoolMetadataType
     from trezor.messages.CardanoAddressParametersType import EnumTypeCardanoAddressType
 
 
@@ -71,7 +71,8 @@ async def confirm_sending(ctx: wire.Context, amount: int, to: str) -> None:
     to_lines = list(chunks(to, 17))
     page1.bold(to_lines[0])
 
-    pages = [page1] + _paginate_lines(to_lines, 1, "Confirm transaction", ui.ICON_SEND)
+    comp: ui.Component = page1  # otherwise `[page1]` is of the wrong type
+    pages = [comp] + _paginate_lines(to_lines, 1, "Confirm transaction", ui.ICON_SEND)
 
     await require_confirm(ctx, Paginated(pages))
 
@@ -142,7 +143,7 @@ async def show_warning_tx_staking_key_hash(
 
     page2 = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
     page2.normal("Staking key hash:")
-    page2.mono(*chunks(hexlify(staking_key_hash), 17))
+    page2.mono(*chunks(hexlify(staking_key_hash).decode(), 17))
 
     page3 = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
     page3.normal("Change amount:")
@@ -152,9 +153,14 @@ async def show_warning_tx_staking_key_hash(
 
 
 async def confirm_transaction(
-    ctx, amount: int, fee: int, protocol_magic: int, ttl: int, has_metadata: bool
+    ctx: wire.Context,
+    amount: int,
+    fee: int,
+    protocol_magic: int,
+    ttl: int,
+    has_metadata: bool,
 ) -> None:
-    pages = []
+    pages: List[ui.Component] = []
 
     page1 = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
     page1.normal("Transaction amount:")
@@ -186,7 +192,7 @@ async def confirm_certificate(
     # in this call
     assert certificate.type != CardanoCertificateType.STAKE_POOL_REGISTRATION
 
-    pages = []
+    pages: List[ui.Component] = []
 
     page1 = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
     page1.normal("Confirm:")
@@ -196,6 +202,7 @@ async def confirm_certificate(
     pages.append(page1)
 
     if certificate.type == CardanoCertificateType.STAKE_DELEGATION:
+        assert certificate.pool is not None  # validate_certificate
         page2 = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
         page2.normal("to pool:")
         page2.bold(hexlify(certificate.pool).decode())
@@ -233,11 +240,11 @@ async def confirm_stake_pool_parameters(
 
 async def confirm_stake_pool_owners(
     ctx: wire.Context,
-    keychain: seed.keychain,
+    keychain: seed.Keychain,
     owners: List[CardanoPoolOwnerType],
     network_id: int,
 ) -> None:
-    pages = []
+    pages: List[ui.Component] = []
     for index, owner in enumerate(owners, 1):
         page = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
         page.normal("Pool owner #%d:" % (index))
@@ -253,6 +260,7 @@ async def confirm_stake_pool_owners(
                 )
             )
         else:
+            assert owner.staking_key_hash is not None  # validate_pool_owners
             page.bold(
                 encode_human_readable_address(
                     pack_reward_address_bytes(owner.staking_key_hash, network_id)
@@ -288,7 +296,9 @@ async def confirm_stake_pool_metadata(
     await require_confirm(ctx, Paginated([page1, page2]))
 
 
-async def confirm_transaction_network_ttl(ctx, protocol_magic: int, ttl: int) -> None:
+async def confirm_transaction_network_ttl(
+    ctx: wire.Context, protocol_magic: int, ttl: int
+) -> None:
     page1 = Text("Confirm transaction", ui.ICON_SEND, ui.GREEN)
     page1.normal("Network:")
     page1.bold(protocol_magics.to_ui_string(protocol_magic))
@@ -355,13 +365,17 @@ async def show_address(
     for address_line in address_lines[: lines_per_page - lines_used_on_first_page]:
         page1.bold(address_line)
 
+    pages: List[ui.Component] = []
+    pages.append(page1)
     # append remaining pages containing the rest of the address
-    pages = [page1] + _paginate_lines(
-        address_lines,
-        lines_per_page - lines_used_on_first_page,
-        address_type_label,
-        ui.ICON_RECEIVE,
-        lines_per_page,
+    pages.extend(
+        _paginate_lines(
+            address_lines,
+            lines_per_page - lines_used_on_first_page,
+            address_type_label,
+            ui.ICON_RECEIVE,
+            lines_per_page,
+        )
     )
 
     return await confirm(
@@ -376,7 +390,7 @@ async def show_address(
 def _paginate_lines(
     lines: List[str], offset: int, desc: str, icon: str, lines_per_page: int = 4
 ) -> List[ui.Component]:
-    pages = []
+    pages: List[ui.Component] = []
     if len(lines) > offset:
         to_pages = list(chunks(lines[offset:], lines_per_page))
         for page in to_pages:
@@ -392,7 +406,7 @@ async def show_warning_address_foreign_staking_key(
     ctx: wire.Context,
     account_path: List[int],
     staking_account_path: List[int],
-    staking_key_hash: bytes,
+    staking_key_hash: Optional[bytes],
 ) -> None:
     await show_warning(
         ctx,
@@ -412,6 +426,7 @@ async def show_warning_address_foreign_staking_key(
             address_n_to_str(staking_account_path),
         )
     else:
+        assert staking_key_hash is not None  # _validate_base_address_staking_info
         staking_key_message = ("Staking key:", hexlify(staking_key_hash).decode())
 
     await show_warning(
