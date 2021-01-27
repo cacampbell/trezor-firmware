@@ -184,7 +184,7 @@ def _show_address(
 
 
 def _show_xpub(xpub: str, desc: str, cancel: str) -> Paginated:
-    pages = []  # type: List[ui.Component]
+    pages: List[ui.Component] = []
     for lines in chunks(list(chunks(xpub, 16)), 5):
         text = Text(desc, ui.ICON_RECEIVE, ui.GREEN)
         text.mono(*lines)
