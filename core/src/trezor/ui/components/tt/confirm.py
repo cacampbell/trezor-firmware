@@ -31,8 +31,8 @@ class Confirm(ConfirmBase):
         major_confirm: bool = False,
     ) -> None:
         self.content = content
-        button_confirm = None  # type: Optional[Button]
-        button_cancel = None  # type: Optional[Button]
+        button_confirm: Optional[Button] = None
+        button_cancel: Optional[Button] = None
 
         if confirm is not None:
             if cancel is None:
